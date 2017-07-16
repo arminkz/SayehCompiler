@@ -37,13 +37,12 @@ public class Main {
             }
 
 
-            System.out.println("--------- Original Source Code ---------------");
-            System.out.println(source);
+            //System.out.println("--------- Original Source Code ---------------");
+            //System.out.println(source);
 
-            System.out.println("--------- Source Code Pre---------------");
+            //System.out.println("--------- Source Code Pre---------------");
             source = Preprocessesor.removeComments(source);
             source = Preprocessesor.removeBlankLines(source);
-            System.out.println(source);
             source = Preprocessesor.removeCRLF(source);
 
             ArrayList<Token> allTokens = Tokenizer.tokenize(source);
@@ -56,8 +55,8 @@ public class Main {
             Parser p = new Parser();
 
             p.parseCode(allTokens);
-            System.out.println("________ASM__________");
-            System.out.println(p.getASM());
+            System.out.println("Sayeh Assembly :\n");
+            System.out.println(p.getFinalASM());
         }
     }
 

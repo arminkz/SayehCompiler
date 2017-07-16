@@ -14,6 +14,10 @@ public class Parser {
         return asm.getASM();
     }
 
+    public String getFinalASM() {
+        return asm.getFinalASM();
+    }
+
     public Parser(){
 
     }
@@ -47,10 +51,11 @@ public class Parser {
                         condition.add(ti);
                     }
 
-                    String if_lbl = asm.getLabel();
+                    String if_end_lbl = asm.getLabel();
+                    String else_start_lbl = asm.getLabel();
                     asm.generateNOT(cond_ans,cond_ans);
                     asm.generateSHR(cond_ans,cond_ans);
-                    asm.generateBRC(if_lbl);
+                    asm.generateBRC(else_start_lbl);
 
                     //PARSE INNER
                     Parser innerParser = new Parser();
@@ -78,7 +83,41 @@ public class Parser {
                     }
 
                     asm.put(innerParser.getASM());
-                    asm.putLabel(if_lbl);
+                    asm.generateJMP(if_end_lbl); // skip else part
+                    asm.putLabel(else_start_lbl);
+                    asm.generateNOP();
+
+                    //PARSE ELSE INNER
+                    Parser innerParser2  = new Parser();
+
+                    if(I.hasNext()){
+                        if(I.next().getValue().equals("else")){
+                            if(I.next().getValue().equals("{")){
+                                int bc = 1;
+                                ArrayList<Token> statements = new ArrayList<>();
+                                int j;
+                                while(I.hasNext()) {
+                                    Token ti = I.next();
+                                    if(ti.getValue().equals("{")){
+                                        pc++;
+                                    }
+                                    if(ti.getValue().equals("}")){
+                                        if (pc == 1){
+                                            innerParser2.parseCode(statements);
+                                            break;
+                                        }
+                                        pc--;
+                                    }
+                                    statements.add(ti);
+                                }
+                            }else{
+                                System.out.println("Invalid ELSE (Code :3)");
+                            }
+                        }
+                    }
+
+                    asm.put(innerParser2.getASM());
+                    asm.putLabel(if_end_lbl);
 
                 }else{
                     System.out.println("Invalid IF (Code :1)");
@@ -106,10 +145,14 @@ public class Parser {
                         condition.add(ti);
                     }
 
-                    String while_lbl = asm.getLabel();
+                    String while_start_lbl = asm.getLabel();
+                    String while_end_lbl = asm.getLabel();
+
+                    asm.putLabel(while_start_lbl);
+
                     asm.generateNOT(cond_ans,cond_ans);
                     asm.generateSHR(cond_ans,cond_ans);
-                    asm.generateBRC(if_lbl);
+                    asm.generateBRC(while_end_lbl);
 
                     //PARSE INNER
                     Parser innerParser = new Parser();
@@ -133,14 +176,77 @@ public class Parser {
                             statements.add(ti);
                         }
                     }else{
-                        System.out.println("Invalid IF (Code :2)");
+                        System.out.println("Invalid WHILE (Code :2)");
                     }
 
                     asm.put(innerParser.getASM());
-                    asm.putLabel(if_lbl);
+                    asm.generateJMP(while_start_lbl);
+                    asm.putLabel(while_end_lbl);
 
                 }else{
-                    System.out.println("Invalid IF (Code :1)");
+                    System.out.println("Invalid WHILE (Code :1)");
+                }
+            }else if(frist.getType()==TokenType.keyword){
+                Chunk c = null;
+                String varName = I.next().getValue();
+
+                //consume ; token or assignment
+                Token e = I.next();
+                if(e.getValue().equals(";")){
+                    //consume token
+                    if(frist.getValue().equals("int")) c = asm.getTempIntegerChunk();
+                    if(frist.getValue().equals("bool")) c = asm.getTempBoolChunk();
+                    asm.declareVAR(varName,c);
+                }else if (e.getValue().equals("=")){
+                    ArrayList<Token> exp = new ArrayList<>();
+                    //Chunk ass_sub = null;
+                    while (I.hasNext()) {
+                        Token toAdd = I.next();
+                        if (toAdd.getValue().equals(";")) break;
+                        exp.add(toAdd);
+                    }
+                    if(frist.getValue().equals("int")){
+                        c = parseMathExp(exp);
+                    }else if(frist.getValue().equals("bool")){
+                        ArrayList<Token> simt = decideSIM(exp);
+                        c = parseBoolExp(simt);
+                    }
+                    asm.declareVAR(varName,c);
+                }
+            }else if(frist.getType()==TokenType.identifier){
+                Chunk ass_target = asm.getVAR(frist.getValue());
+                if(ass_target != null) {
+                    Token op = I.next();
+                    if (op.getType() == TokenType.operator) {
+                        ArrayList<Token> exp = new ArrayList<>();
+                        Chunk ass_sub = null;
+                        while (I.hasNext()) {
+                            Token toAdd = I.next();
+                            if (toAdd.getValue().equals(";")) break;
+                            exp.add(toAdd);
+                        }
+                        if(ass_target.getType()==ChunkType.reg_integer){
+                            ass_sub = parseMathExp(exp);
+                        }else if(ass_target.getType()==ChunkType.reg_bool){
+                            ArrayList<Token> simt = decideSIM(exp);
+                            ass_sub = parseBoolExp(simt);
+                        }
+                        if(op.getValue().equals("=")){
+                            asm.generateMVR(ass_target,ass_sub);
+                        }else if(op.getValue().equals("+=")){
+                            asm.generateADD(ass_target,ass_sub);
+                        }else if(op.getValue().equals("-=")){
+                            asm.generateSUB(ass_target,ass_sub);
+                        }else if(op.getValue().equals("*=")){
+                            asm.generateMUL(ass_target,ass_sub);
+                        }else if(op.getValue().equals("/=")){
+                            asm.generateDIV(ass_target,ass_sub);
+                        }
+                    } else {
+                        System.out.println("Invalid Assignment");
+                    }
+                }else{
+                    System.out.println("Unknown Identifier");
                 }
             }
         }
@@ -159,7 +265,10 @@ public class Parser {
 
             if(t.getType() == TokenType.number || t.getType() == TokenType.identifier){
                 //Number
-                postfix.push(t);
+                if(t.getType() == TokenType.identifier && !t.getValue().startsWith("$"))
+                    postfix.push(Token.fromChunk(asm.getVAR(t.getValue())));
+                else
+                    postfix.push(t);
 
             }else if(t.getType() == TokenType.operator){
                 //Operator
@@ -338,9 +447,12 @@ public class Parser {
         }
 
         if(EvalStack.size() == 1){
-            //System.out.println(asm.getASM());
             Chunk ans = EvalStack.pop();
-            //System.out.println("ANSWER IS IN : " + ans.Name);
+            if(ans.getType()==ChunkType.immediate){
+                Chunk imdLoaded = asm.getTempIntegerChunk();
+                asm.generateMIL(imdLoaded,Integer.parseInt(ans.Name));
+                return imdLoaded;
+            }
             return ans;
         }else{
             System.err.println("Bad Syntax : More than one Chunk in stack !");
@@ -358,7 +470,10 @@ public class Parser {
 
             if(t.getValue().equals("true") || t.getValue().equals("false") || t.getType() == TokenType.identifier){
                 //Number
-                postfix.push(t);
+                if(t.getType() == TokenType.identifier && !t.getValue().startsWith("$"))
+                    postfix.push(Token.fromChunk(asm.getVAR(t.getValue())));
+                else
+                    postfix.push(t);
 
             }else if(t.getType() == TokenType.operator){
                 //Operator
@@ -474,9 +589,12 @@ public class Parser {
         }
 
         if(EvalStack.size() == 1){
-            //System.out.println(asm.getASM());
             Chunk ans = EvalStack.pop();
-            //System.out.println("ANSWER IS IN : " + ans.Name);
+            if(ans.getType()==ChunkType.immediate){
+                Chunk imdLoaded = asm.getTempBoolChunk();
+                asm.generateMIL(imdLoaded,Boolean.parseBoolean(ans.Name));
+                return imdLoaded;
+            }
             return ans;
         }else{
             System.err.println("Bad Syntax : More than one Chunk in stack !");
